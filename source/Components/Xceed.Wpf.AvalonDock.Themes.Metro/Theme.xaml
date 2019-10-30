@@ -1314,9 +1314,16 @@
               <Border x:Name="Header">
                 <avalonDockControls:AnchorablePaneTitle Model="{Binding Model, RelativeSource={RelativeSource TemplatedParent}}" />
               </Border>
+              <!--
+                  Added ContentTemplate and ContentTemplateSelector 
+                  https://github.com/xceedsoftware/wpftoolkit/issues/1525
+              -->
               <ContentPresenter Grid.Row="1"
-                                FlowDirection="{TemplateBinding FlowDirection}"
-                                Content="{Binding LayoutItem.View, RelativeSource={RelativeSource TemplatedParent}}" />
+                  FlowDirection="{TemplateBinding FlowDirection}"
+                  Content="{Binding LayoutItem.View, RelativeSource={RelativeSource TemplatedParent}}"
+                  ContentTemplate="{Binding LayoutItem.View.ContentTemplate, RelativeSource={RelativeSource TemplatedParent}}"
+                  ContentTemplateSelector="{Binding LayoutItem.View.ContentTemplateSelector, RelativeSource={RelativeSource TemplatedParent}}"
+               />
 
               <!--<ContentPresenter 
                                 Content="{Binding Model.Content, RelativeSource={RelativeSource TemplatedParent}}" 
@@ -1370,7 +1377,7 @@
                     BorderThickness="{TemplateBinding BorderThickness}">
               <Grid>
                 <Grid.RowDefinitions>
-                  <RowDefinition Height="24" />
+                  <RowDefinition MinHeight="24" Height="Auto" /><!-- https://github.com/xceedsoftware/wpftoolkit/issues/1203 -->
                   <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
@@ -1386,7 +1393,8 @@
                 <Border x:Name="Header"
                         Padding="2,0,2,0"
                         Grid.Column="1">
-                  <Grid>
+                  <Grid
+                      UseLayoutRounding="True">
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="*" />
                       <ColumnDefinition Width="Auto" />
@@ -1557,14 +1565,15 @@
                     BorderBrush="{TemplateBinding BorderBrush}">
               <Grid>
                 <Grid.RowDefinitions>
-                  <RowDefinition Height="24" />
+                  <RowDefinition MinHeight="24" Height="Auto" /><!-- https://github.com/xceedsoftware/wpftoolkit/issues/1203 -->
                   <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 <Border x:Name="Header"
                         Padding="2,0,2,0"
                         TextElement.Foreground="{DynamicResource AvalonDock_ThemeMetro_BaseColor2}"
                         Background="{TemplateBinding Background}">
-                  <Grid>
+                  <Grid
+                      UseLayoutRounding="True">
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="*" />
                       <ColumnDefinition Width="Auto" />

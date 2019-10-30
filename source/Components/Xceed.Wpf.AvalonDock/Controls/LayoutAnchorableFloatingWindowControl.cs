@@ -51,7 +51,36 @@ namespace Xceed.Wpf.AvalonDock.Controls
       _model = model;
       HideWindowCommand = new RelayCommand( ( p ) => OnExecuteHideWindowCommand( p ), ( p ) => CanExecuteHideWindowCommand( p ) );
       CloseWindowCommand = new RelayCommand( ( p ) => OnExecuteCloseWindowCommand( p ), ( p ) => CanExecuteCloseWindowCommand( p ) );
+      Activated += LayoutAnchorableFloatingWindowControl_Activated;
       UpdateThemeResources();
+      MinWidth = _model.RootPanel.CalculatedDockMinWidth();
+      MinHeight = _model.RootPanel.CalculatedDockMinHeight();
+      
+      LayoutRoot root = _model.Root as LayoutRoot;
+      if (root != null)
+      {
+        root.Updated += OnRootUpdated;
+      }
+    }
+
+    private void OnRootUpdated(object sender, EventArgs e)
+    {
+      if (_model?.RootPanel != null)
+      {
+        MinWidth = _model.RootPanel.CalculatedDockMinWidth();
+        MinHeight = _model.RootPanel.CalculatedDockMinHeight();
+      }
+    }
+
+    private void LayoutAnchorableFloatingWindowControl_Activated( object sender, EventArgs e )
+    {
+      // Issue similar to: http://avalondock.codeplex.com/workitem/15036
+      var visibilityBinding = GetBindingExpression( VisibilityProperty );
+
+      if ( visibilityBinding == null && Visibility == Visibility.Visible )
+      {
+        SetVisibilityBinding();
+      }
     }
 
     internal LayoutAnchorableFloatingWindowControl( LayoutAnchorableFloatingWindow model)
@@ -127,14 +156,7 @@ namespace Xceed.Wpf.AvalonDock.Controls
       //SetBinding(VisibilityProperty, new Binding("IsVisible") { Source = _model, Converter = new BoolToVisibilityConverter(), Mode = BindingMode.OneWay, ConverterParameter = Visibility.Hidden });
 
       //Issue: http://avalondock.codeplex.com/workitem/15036
-      IsVisibleChanged += ( s, args ) =>
-      {
-        var visibilityBinding = GetBindingExpression( VisibilityProperty );
-        if( IsVisible && ( visibilityBinding == null ) )
-        {
-          SetBinding( VisibilityProperty, new Binding( "IsVisible" ) { Source = _model, Converter = new BoolToVisibilityConverter(), Mode = BindingMode.OneWay, ConverterParameter = Visibility.Hidden } );
-        }
-      };
+      IsVisibleChanged += this.LayoutAnchorableFloatingWindowControl_IsVisibleChanged;
 
       SetBinding( SingleContentLayoutItemProperty, new Binding( "Model.SinglePane.SelectedContent" ) { Source = this, Converter = new LayoutItemFromLayoutModelConverter() } );
 
@@ -146,6 +168,12 @@ namespace Xceed.Wpf.AvalonDock.Controls
       var root = Model.Root;
       if( root != null )
       {
+        LayoutRoot layoutRoot = root as LayoutRoot;
+        if (layoutRoot != null)
+        {
+          layoutRoot.Updated -= OnRootUpdated;
+        }
+
         root.Manager.RemoveFloatingWindow( this );
         root.CollectGarbage();
       }
@@ -162,17 +190,26 @@ namespace Xceed.Wpf.AvalonDock.Controls
         root.FloatingWindows.Remove( _model );
       }
 
-      SetBinding(VisibilityProperty, string.Empty);
+      // We have to clear binding instead of creating a new empty binding.
+      BindingOperations.ClearBinding(_model, VisibilityProperty);
 
       _model.PropertyChanged -= new System.ComponentModel.PropertyChangedEventHandler( _model_PropertyChanged );
+      Activated -= LayoutAnchorableFloatingWindowControl_Activated;
+      IsVisibleChanged -= this.LayoutAnchorableFloatingWindowControl_IsVisibleChanged;
+      BindingOperations.ClearBinding( this, VisibilityProperty );
+      BindingOperations.ClearBinding( this, SingleContentLayoutItemProperty );
     }
 
     protected override void OnClosing( System.ComponentModel.CancelEventArgs e )
     {
-      if( CloseInitiatedByUser && !KeepContentVisibleOnClose )
+      bool CanHide = HideWindowCommand.CanExecute(null);
+
+      if( CloseInitiatedByUser && !KeepContentVisibleOnClose && !CanHide)
       {
         e.Cancel = true;
-        _model.Descendents().OfType<LayoutAnchorable>().ToArray().ForEach<LayoutAnchorable>( ( a ) => a.Hide() );
+
+        if (CanHide == true)
+            _model.Descendents().OfType<LayoutAnchorable>().ToArray().ForEach<LayoutAnchorable>( ( a ) => a.Hide() );
       }
 
       base.OnClosing( e );
@@ -185,7 +222,12 @@ namespace Xceed.Wpf.AvalonDock.Controls
         case Win32Helper.WM_NCLBUTTONDOWN: //Left button down on title -> start dragging over docking manager
           if( wParam.ToInt32() == Win32Helper.HT_CAPTION )
           {
-            _model.Descendents().OfType<LayoutAnchorablePane>().First( p => p.ChildrenCount > 0 && p.SelectedContent != null ).SelectedContent.IsActive = true;
+            var anchorablePane = _model.Descendents().OfType<LayoutAnchorablePane>()
+                .FirstOrDefault( p => p.ChildrenCount > 0 && p.SelectedContent != null );
+            if( anchorablePane != null )
+            {
+              anchorablePane.SelectedContent.IsActive = true;
+            }
             handled = true;
           }
           break;
@@ -223,10 +265,23 @@ namespace Xceed.Wpf.AvalonDock.Controls
 
     private void _model_PropertyChanged( object sender, System.ComponentModel.PropertyChangedEventArgs e )
     {
-      if( e.PropertyName == "RootPanel" &&
-          _model.RootPanel == null )
+      switch (e.PropertyName)
       {
-        InternalClose();
+        case "RootPanel":
+          if (_model.RootPanel == null)
+          {
+            InternalClose();
+          }
+
+          break;
+
+        case "IsVisible":
+          if (_model.IsVisible != IsVisible)
+          {
+            Visibility = _model.IsVisible ? Visibility.Visible : Visibility.Hidden;
+          }
+
+          break;
       }
     }
 
@@ -267,7 +322,71 @@ namespace Xceed.Wpf.AvalonDock.Controls
       return false;
     }
 
+    private void SetVisibilityBinding()
+    {
+      SetBinding(
+        VisibilityProperty,
+        new Binding( "IsVisible" )
+        {
+          Source = _model,
+          Converter = new BoolToVisibilityConverter(),
+          Mode = BindingMode.OneWay,
+          ConverterParameter = Visibility.Hidden
+        }
+      );
+    }
+
     #endregion
+
+    #region Public Methods
+
+    public override void EnableBindings()
+    {
+      _model.PropertyChanged += _model_PropertyChanged;
+      SetVisibilityBinding();
+      var root = Model.Root;
+      if( root != null )
+      {
+        LayoutRoot layoutRoot = root as LayoutRoot;
+        if ( layoutRoot != null )
+        {
+          layoutRoot.Updated += OnRootUpdated;
+        }
+      }
+
+      base.EnableBindings();
+    }
+
+    public override void DisableBindings()
+    {
+      var root = Model.Root;
+      if( root != null )
+      {
+        LayoutRoot layoutRoot = root as LayoutRoot;
+        if( layoutRoot != null )
+        {
+          layoutRoot.Updated -= OnRootUpdated;
+        }
+      }
+
+      BindingOperations.ClearBinding( _model, VisibilityProperty );
+      _model.PropertyChanged -= _model_PropertyChanged;
+
+      base.DisableBindings();
+    }
+
+        #endregion
+
+    #region Event Handlers
+    private void LayoutAnchorableFloatingWindowControl_IsVisibleChanged( object sender, DependencyPropertyChangedEventArgs e )
+    {
+      var visibilityBinding = GetBindingExpression( VisibilityProperty );
+      if( IsVisible && ( visibilityBinding == null ) )
+      {
+        SetBinding( VisibilityProperty, new Binding( "IsVisible" ) { Source = _model, Converter = new BoolToVisibilityConverter(), Mode = BindingMode.OneWay, ConverterParameter = Visibility.Hidden } );
+      }
+    }
+    #endregion Event Handlers
 
     #region Commands
 
@@ -324,6 +443,8 @@ namespace Xceed.Wpf.AvalonDock.Controls
         var anchorableLayoutItem = manager.GetLayoutItemFromModel( anchorable ) as LayoutAnchorableItem;
         anchorableLayoutItem.HideCommand.Execute( parameter );
       }
+
+      Hide(); // Bring toolwindows inside hidden FloatingWindow back requires restart of app
     }
     #endregion
 
